@@ -26,6 +26,9 @@
 #include <mbedtls/error.h>
 #endif /* MBEDTLS_ERROR_C */
 #include <mbedtls/pk.h>
+#if MBEDTLS_VERSION_NUMBER >= 0x04000000
+#include <psa/crypto.h>
+#endif
 #include <mbedtls/ecdsa.h>
 #include <mbedtls/x509.h>
 #include "alloc.h"
@@ -298,11 +301,13 @@ mender_tls_sign_payload(char *payload, char **signature, size_t *signature_lengt
     }
 
     /* Parse private key (IMPORTANT NOTE: length must include the ending \0 character) */
-#if MBEDTLS_VERSION_NUMBER >= 0x03000000
+#if MBEDTLS_VERSION_NUMBER >= 0x04000000
+    if (0 != (ret = mbedtls_pk_parse_key(pk_context, mender_tls_private_key, mender_tls_private_key_length, NULL, 0))) {
+#elif MBEDTLS_VERSION_NUMBER >= 0x03000000
     if (0 != (ret = mbedtls_pk_parse_key(pk_context, mender_tls_private_key, mender_tls_private_key_length, NULL, 0, mbedtls_ctr_drbg_random, ctr_drbg))) {
 #else
     if (0 != (ret = mbedtls_pk_parse_key(pk_context, mender_tls_private_key, mender_tls_private_key_length, NULL, 0))) {
-#endif /* MBEDTLS_VERSION_NUMBER >= 0x03000000 */
+#endif
         LOG_MBEDTLS_ERROR("Unable to parse private key", ret);
         goto END;
     }
@@ -321,11 +326,13 @@ mender_tls_sign_payload(char *payload, char **signature, size_t *signature_lengt
         goto END;
     }
     sig_length = MBEDTLS_PK_SIGNATURE_MAX_SIZE;
-#if MBEDTLS_VERSION_NUMBER >= 0x03000000
+#if MBEDTLS_VERSION_NUMBER >= 0x04000000
+    if (0 != (ret = mbedtls_pk_sign(pk_context, MBEDTLS_MD_SHA256, digest, sizeof(digest), sig, sig_length, &sig_length))) {
+#elif MBEDTLS_VERSION_NUMBER >= 0x03000000
     if (0 != (ret = mbedtls_pk_sign(pk_context, MBEDTLS_MD_SHA256, digest, sizeof(digest), sig, sig_length, &sig_length, mbedtls_ctr_drbg_random, ctr_drbg))) {
 #else
     if (0 != (ret = mbedtls_pk_sign(pk_context, MBEDTLS_MD_SHA256, digest, sizeof(digest), sig, &sig_length, mbedtls_ctr_drbg_random, ctr_drbg))) {
-#endif /* MBEDTLS_VERSION_NUMBER >= 0x03000000 */
+#endif
         LOG_MBEDTLS_ERROR("Unable to compute signature", ret);
         goto END;
     }
@@ -377,6 +384,31 @@ mender_tls_exit(void) {
 
 static mender_err_t
 mender_tls_generate_authentication_keys(mbedtls_pk_context *pk_context) {
+
+#if MBEDTLS_VERSION_NUMBER >= 0x04000000
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+    psa_key_id_t key_id = PSA_KEY_ID_NULL;
+    psa_status_t status;
+
+    psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_VERIFY_HASH);
+    psa_set_key_algorithm(&attributes, PSA_ALG_ECDSA(PSA_ALG_SHA_256));
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
+    psa_set_key_bits(&attributes, 256);
+
+    status = psa_generate_key(&attributes, &key_id);
+    if (status != PSA_SUCCESS) {
+        mender_log_error("Unable to generate authentication key");
+        return MENDER_FAIL;
+    }
+
+    if (0 != mbedtls_pk_copy_from_psa(key_id, pk_context)) {
+        psa_destroy_key(key_id);
+        mender_log_error("Unable to import generated key");
+        return MENDER_FAIL;
+    }
+    psa_destroy_key(key_id);
+    return MENDER_OK;
+#else
 
     mbedtls_ctr_drbg_context     *ctr_drbg   = NULL;
     mbedtls_entropy_context      *entropy    = NULL;
@@ -435,6 +467,7 @@ END:
     mender_free(ctr_drbg);
 
     return (0 != ret) ? MENDER_FAIL : MENDER_OK;
+#endif /* MBEDTLS_VERSION_NUMBER >= 0x04000000 */
 }
 
 static mender_err_t
@@ -468,13 +501,15 @@ mender_tls_user_provided_authentication_keys(mbedtls_pk_context *pk_context, con
     }
 
     /* Load and parse the private key buffer */
-#if MBEDTLS_VERSION_NUMBER >= 0x03000000
+#if MBEDTLS_VERSION_NUMBER >= 0x04000000
+    if (0 != (ret = mbedtls_pk_parse_key(pk_context, (const unsigned char *)user_provided_key, user_provided_key_length, NULL, 0))) {
+#elif MBEDTLS_VERSION_NUMBER >= 0x03000000
     if (0
         != (ret = mbedtls_pk_parse_key(
                 pk_context, (const unsigned char *)user_provided_key, user_provided_key_length, NULL, 0, mbedtls_ctr_drbg_random, ctr_drbg))) {
 #else
     if (0 != (ret = mbedtls_pk_parse_key(pk_context, (const unsigned char *)user_provided_key, user_provided_key_length, NULL, 0))) {
-#endif /* MBEDTLS_VERSION_NUMBER >= 0x03000000 */
+#endif
         LOG_MBEDTLS_ERROR("Unable to parse private key", ret);
         goto END;
     }

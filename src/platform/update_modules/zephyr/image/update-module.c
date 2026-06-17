@@ -29,8 +29,8 @@
 #include "utils.h"
 #include "zephyr-image-update-module.h"
 
-#define MENDER_SLOT_PARTITION_0 FIXED_PARTITION_ID(slot0_partition)
-#define MENDER_SLOT_PARTITION_1 FIXED_PARTITION_ID(slot1_partition)
+#define MENDER_SLOT_PARTITION_0 PARTITION_ID(slot0_partition)
+#define MENDER_SLOT_PARTITION_1 PARTITION_ID(slot1_partition)
 
 /**
  * @brief Flash handle used to store temporary reference to write rootfs-image data

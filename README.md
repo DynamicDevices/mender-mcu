@@ -43,9 +43,23 @@ We recommend starting there to understand how we have designed our solution and 
 here for more in-depth information.
 
 ### Compatibility
-| Zephyr OS version |
-|-------------------|
-| v4.2.0            |
+| Zephyr OS version | Notes |
+|-------------------|-------|
+| v4.2.0            | NVS via `zephyr/fs/nvs.h`; flash partitions use `FIXED_PARTITION_*` |
+| v4.4.0            | NVS via `zephyr/kvss/nvs.h`; `PARTITION_*` flash map API; **TF-PSA-Crypto / Mbed TLS 4.x** for TLS (see below) |
+
+### Zephyr v4.4 TLS and PSA Kconfig
+
+On Zephyr **v4.4.0**, the in-tree TLS stack uses **Mbed TLS 4.x** with **TF-PSA-Crypto**. Applications must enable the PSA algorithms and key types that Mender's TLS client uses, in addition to the usual Mbed TLS socket options.
+
+Copy the crypto-related options from the reference [mender-mcu-integration `prj.conf`](https://github.com/mendersoftware/mender-mcu-integration/blob/main/prj.conf), in particular:
+
+- `CONFIG_MBEDTLS_SSL_PROTO_TLS1_2=y`
+- `CONFIG_MBEDTLS_SSL_SERVER_NAME_INDICATION=y`
+- `CONFIG_MBEDTLS_USER_CONFIG_ENABLE=y` and `CONFIG_MBEDTLS_USER_CONFIG_FILE` pointing at your TLS header (see integration `config-tls-mender.h`)
+- `CONFIG_PSA_WANT_ALG_SHA_256`, `CONFIG_PSA_WANT_ALG_SHA_384`, `CONFIG_PSA_WANT_ALG_GCM`, `CONFIG_PSA_WANT_ALG_CCM`, `CONFIG_PSA_WANT_ALG_ECDH`, `CONFIG_PSA_WANT_ALG_ECDSA`, and related `CONFIG_PSA_WANT_KEY_TYPE_*` / `CONFIG_PSA_WANT_ECC_*` entries
+
+Zephyr 4.2 builds do not require the `PSA_WANT_*` set for the legacy Mbed TLS 3.x integration.
 
 ### Boards
 The reference board for `mender-mcu` is the [ESP32-S3-DevKitC](https://docs.zephyrproject.org/latest/boards/espressif/esp32s3_devkitc/doc/index.html).

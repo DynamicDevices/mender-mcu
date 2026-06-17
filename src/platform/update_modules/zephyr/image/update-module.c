@@ -22,6 +22,13 @@
 #include <zephyr/dfu/flash_img.h>
 #include <zephyr/dfu/mcuboot.h>
 #include <zephyr/storage/flash_map.h>
+#include <zephyr/version.h>
+
+#if (ZEPHYR_VERSION_CODE >= ZEPHYR_VERSION(4, 4, 0))
+#define MENDER_PARTITION_ID(label) PARTITION_ID(label)
+#else
+#define MENDER_PARTITION_ID(label) FIXED_PARTITION_ID(label)
+#endif
 
 #include "client.h"
 #include "log.h"
@@ -29,8 +36,8 @@
 #include "utils.h"
 #include "zephyr-image-update-module.h"
 
-#define MENDER_SLOT_PARTITION_0 PARTITION_ID(slot0_partition)
-#define MENDER_SLOT_PARTITION_1 PARTITION_ID(slot1_partition)
+#define MENDER_SLOT_PARTITION_0 MENDER_PARTITION_ID(slot0_partition)
+#define MENDER_SLOT_PARTITION_1 MENDER_PARTITION_ID(slot1_partition)
 
 /**
  * @brief Flash handle used to store temporary reference to write rootfs-image data

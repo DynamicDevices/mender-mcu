@@ -20,8 +20,18 @@
 
 #include <errno.h>
 #include <zephyr/drivers/flash.h>
-#include <zephyr/kvss/nvs.h>
 #include <zephyr/storage/flash_map.h>
+#include <zephyr/version.h>
+
+#if (ZEPHYR_VERSION_CODE >= ZEPHYR_VERSION(4, 4, 0))
+#include <zephyr/kvss/nvs.h>
+#define MENDER_PARTITION_DEVICE(label) PARTITION_DEVICE(label)
+#define MENDER_PARTITION_ID(label)     PARTITION_ID(label)
+#else
+#include <zephyr/fs/nvs.h>
+#define MENDER_PARTITION_DEVICE(label) FIXED_PARTITION_DEVICE(label)
+#define MENDER_PARTITION_ID(label)     FIXED_PARTITION_ID(label)
+#endif
 #include "log.h"
 #include "storage.h"
 
@@ -68,8 +78,8 @@ mender_get_storage_spec(const struct device **dev, int *part_id, uint16_t *secto
     return MENDER_NOT_IMPLEMENTED;
 #else
     /* Otherwise we set the parameters based on the values defined above. */
-    *dev     = PARTITION_DEVICE(MENDER_STORAGE_LABEL);
-    *part_id = PARTITION_ID(MENDER_STORAGE_LABEL);
+    *dev     = MENDER_PARTITION_DEVICE(MENDER_STORAGE_LABEL);
+    *part_id = MENDER_PARTITION_ID(MENDER_STORAGE_LABEL);
 
     *sector_offset = CONFIG_MENDER_STORAGE_SECTOR_OFFSET;
 
@@ -375,7 +385,7 @@ mender_storage_deployment_log_append(const char *msg, size_t msg_size) {
     msg_size = MIN(DEPL_LOGS_MAX_MSG_LEN + 1, msg_size);
 
     const struct flash_area *fap;
-    if (0 != (result = flash_area_open(PARTITION_ID(MENDER_STORAGE_LABEL), &fap))) {
+    if (0 != (result = flash_area_open(MENDER_PARTITION_ID(MENDER_STORAGE_LABEL), &fap))) {
         mender_log_error("Unable to open the Mender storage flash area [%d]", -result);
         return MENDER_FAIL;
     }
@@ -412,7 +422,7 @@ mender_storage_deployment_log_walk(MenderDeploymentLogVisitor visitor_fn, void *
     char         msg[DEPL_LOGS_MAX_MSG_LEN + 1];
 
     const struct flash_area *fap;
-    if (0 != (result = flash_area_open(PARTITION_ID(MENDER_STORAGE_LABEL), &fap))) {
+    if (0 != (result = flash_area_open(MENDER_PARTITION_ID(MENDER_STORAGE_LABEL), &fap))) {
         mender_log_error("Unable to open the Mender storage flash area");
         return MENDER_FAIL;
     }

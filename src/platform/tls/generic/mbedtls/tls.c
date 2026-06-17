@@ -28,8 +28,9 @@
 #include <mbedtls/pk.h>
 #if MBEDTLS_VERSION_NUMBER >= 0x04000000
 #include <psa/crypto.h>
-#endif
+#else
 #include <mbedtls/ecdsa.h>
+#endif
 #include <mbedtls/x509.h>
 #include "alloc.h"
 #include "log.h"

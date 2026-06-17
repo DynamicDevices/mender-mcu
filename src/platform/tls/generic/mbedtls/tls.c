@@ -20,8 +20,10 @@
 
 #include <mbedtls/base64.h>
 #include <mbedtls/bignum.h>
+#if MBEDTLS_VERSION_NUMBER < 0x04000000
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/entropy.h>
+#endif
 #ifdef MBEDTLS_ERROR_C
 #include <mbedtls/error.h>
 #endif /* MBEDTLS_ERROR_C */
@@ -268,9 +270,11 @@ mender_tls_sign_payload(char *payload, char **signature, size_t *signature_lengt
     assert(NULL != signature);
     assert(NULL != signature_length);
     int                       ret;
-    mbedtls_pk_context       *pk_context = NULL;
-    mbedtls_ctr_drbg_context *ctr_drbg   = NULL;
-    mbedtls_entropy_context  *entropy    = NULL;
+    mbedtls_pk_context *pk_context = NULL;
+#if MBEDTLS_VERSION_NUMBER < 0x04000000
+    mbedtls_ctr_drbg_context *ctr_drbg = NULL;
+    mbedtls_entropy_context  *entropy  = NULL;
+#endif
     unsigned char            *sig        = NULL;
     size_t                    sig_length;
     MBEDTLS_ERR_BUF;
@@ -282,6 +286,7 @@ mender_tls_sign_payload(char *payload, char **signature, size_t *signature_lengt
         goto END;
     }
     mbedtls_pk_init(pk_context);
+#if MBEDTLS_VERSION_NUMBER < 0x04000000
     if (NULL == (ctr_drbg = (mbedtls_ctr_drbg_context *)mender_malloc(sizeof(mbedtls_ctr_drbg_context)))) {
         mender_log_error("Unable to allocate memory");
         ret = -1;
@@ -300,6 +305,7 @@ mender_tls_sign_payload(char *payload, char **signature, size_t *signature_lengt
         LOG_MBEDTLS_ERROR("Unable to initialize ctr drbg", ret);
         goto END;
     }
+#endif
 
     /* Parse private key (IMPORTANT NOTE: length must include the ending \0 character) */
 #if MBEDTLS_VERSION_NUMBER >= 0x04000000
@@ -358,10 +364,12 @@ mender_tls_sign_payload(char *payload, char **signature, size_t *signature_lengt
 END:
 
     /* Release mbedtls */
+#if MBEDTLS_VERSION_NUMBER < 0x04000000
     mbedtls_entropy_free(entropy);
     mender_free(entropy);
     mbedtls_ctr_drbg_free(ctr_drbg);
     mender_free(ctr_drbg);
+#endif
     mbedtls_pk_free(pk_context);
     mender_free(pk_context);
 
@@ -477,11 +485,14 @@ mender_tls_user_provided_authentication_keys(mbedtls_pk_context *pk_context, con
     assert(NULL != user_provided_key);
     assert(0 != user_provided_key_length);
 
+#if MBEDTLS_VERSION_NUMBER < 0x04000000
     mbedtls_ctr_drbg_context *ctr_drbg = NULL;
     mbedtls_entropy_context  *entropy  = NULL;
+#endif
     int                       ret;
     MBEDTLS_ERR_BUF;
 
+#if MBEDTLS_VERSION_NUMBER < 0x04000000
     if (NULL == (ctr_drbg = (mbedtls_ctr_drbg_context *)mender_malloc(sizeof(mbedtls_ctr_drbg_context)))) {
         mender_log_error("Unable to allocate memory");
         ret = -1;
@@ -500,6 +511,7 @@ mender_tls_user_provided_authentication_keys(mbedtls_pk_context *pk_context, con
         LOG_MBEDTLS_ERROR("Unable to initialize ctr drbg", ret);
         goto END;
     }
+#endif
 
     /* Load and parse the private key buffer */
 #if MBEDTLS_VERSION_NUMBER >= 0x04000000
@@ -517,10 +529,12 @@ mender_tls_user_provided_authentication_keys(mbedtls_pk_context *pk_context, con
 
 END:
     /* Release mbedtls */
+#if MBEDTLS_VERSION_NUMBER < 0x04000000
     mbedtls_entropy_free(entropy);
     mender_free(entropy);
     mbedtls_ctr_drbg_free(ctr_drbg);
     mender_free(ctr_drbg);
+#endif
 
     return (0 != ret) ? MENDER_FAIL : MENDER_OK;
 }

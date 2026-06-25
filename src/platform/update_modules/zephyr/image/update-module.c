@@ -19,6 +19,8 @@
  */
 
 #include <errno.h>
+#include <stdlib.h>
+#include <string.h>
 #include <zephyr/dfu/flash_img.h>
 #include <zephyr/dfu/mcuboot.h>
 #include <zephyr/storage/flash_map.h>
@@ -46,6 +48,25 @@ static struct flash_img_context *mcu_boot_flash_handle = NULL;
 
 static bool artifact_had_payload;
 
+/*
+ * SDRAM staging buffer (local mimxrt1064_evk integration patch).
+ *
+ * On the i.MX RT1064 the running code (slot0), the download target (slot1) and
+ * MCUboot all live on the same FlexSPI NOR. Writing each downloaded chunk
+ * straight to slot1 erases/programs the flash the CPU executes from (XIP),
+ * suspending execution — including the Ethernet RX path — for the duration of
+ * every flash op. At line-rate ingress the ENET DMA ring overflows, frames are
+ * dropped and the TLS download deadlocks/stalls mid-transfer.
+ *
+ * To decouple the network from flash timing we accumulate the whole image into
+ * SDRAM during the (fast) download, then write it to slot1 in one pass at close,
+ * after the network transfer is already complete. The libc malloc arena
+ * (COMMON_LIBC_MALLOC_ARENA_SIZE=-1) spans the 32MB SDRAM, so it has room.
+ */
+static uint8_t *stage_buf = NULL; /* RAM staging buffer (NULL => direct-to-flash fallback) */
+static size_t   stage_cap = 0;    /* allocated capacity == expected image size */
+static size_t   stage_len = 0;    /* highest offset+length staged so far */
+
 static mender_err_t
 mender_flash_open(const char *name, size_t size, struct flash_img_context **handle) {
     assert(NULL != name);
@@ -68,22 +89,50 @@ mender_flash_open(const char *name, size_t size, struct flash_img_context **hand
         return MENDER_FAIL;
     }
 
+    /* Stage the whole image in SDRAM so the slow per-chunk flash writes do not
+     * suspend XIP and stall the network mid-download. Fall back to direct
+     * writes if the buffer cannot be allocated. */
+    stage_buf = NULL;
+    stage_cap = 0;
+    stage_len = 0;
+    if (size > 0) {
+        stage_buf = malloc(size);
+        if (NULL != stage_buf) {
+            stage_cap = size;
+            mender_log_info("Staging %u bytes in SDRAM before flashing", (unsigned)size);
+        } else {
+            mender_log_warning("Unable to stage %u bytes in RAM; writing directly to flash", (unsigned)size);
+        }
+    }
+
     return MENDER_OK;
 }
 
 static mender_err_t
 mender_flash_write(struct flash_img_context *handle, const void *data, size_t index, size_t length) {
-    (void)index;
-
     int result;
 
-    /* Check flash handle */
+    /* Staged path: copy into the SDRAM buffer (no flash I/O, so XIP and the
+     * network RX path keep running). Deferred to flash in mender_flash_close(). */
+    if (NULL != stage_buf) {
+        if (index + length > stage_cap) {
+            mender_log_error("Staged image overflow: %u > %u", (unsigned)(index + length), (unsigned)stage_cap);
+            return MENDER_FAIL;
+        }
+        memcpy(stage_buf + index, data, length);
+        if (index + length > stage_len) {
+            stage_len = index + length;
+        }
+        return MENDER_OK;
+    }
+
+    (void)index;
+
+    /* Fallback: write data received directly to the update partition */
     if (NULL == handle) {
         mender_log_error("Invalid flash handle");
         return MENDER_FAIL;
     }
-
-    /* Write data received to the update partition */
     if (0 != (result = flash_img_buffered_write(handle, (const uint8_t *)data, length, false))) {
         mender_log_error("flash_img_buffered_write failed (%d)", -result);
         return MENDER_FAIL;
@@ -99,10 +148,31 @@ mender_flash_close(struct flash_img_context *handle) {
     /* Check flash handle */
     if (NULL == handle) {
         mender_log_error("Invalid flash handle");
+        if (NULL != stage_buf) {
+            free(stage_buf);
+            stage_buf = NULL;
+            stage_cap = stage_len = 0;
+        }
         return MENDER_FAIL;
     }
 
-    /* Flush data received to the update partition */
+    /* Staged path: the download is complete, so write the whole image to slot1
+     * in one pass now. Flash ops suspend XIP, but no network transfer is in
+     * flight at this point, so nothing stalls. */
+    if (NULL != stage_buf) {
+        mender_log_info("Writing %u staged bytes to flash", (unsigned)stage_len);
+        result    = flash_img_buffered_write(handle, stage_buf, stage_len, true);
+        free(stage_buf);
+        stage_buf = NULL;
+        stage_cap = stage_len = 0;
+        if (0 != result) {
+            mender_log_error("flash_img_buffered_write failed (%d)", -result);
+            return MENDER_FAIL;
+        }
+        return MENDER_OK;
+    }
+
+    /* Fallback: flush data received to the update partition */
     if (0 != (result = flash_img_buffered_write(handle, NULL, 0, true))) {
         mender_log_error("flash_img_buffered_write failed (%d)", -result);
         return MENDER_FAIL;
@@ -138,6 +208,13 @@ mender_flash_set_pending_image(struct flash_img_context **handle) {
 
 static mender_err_t
 mender_flash_abort_deployment(struct flash_img_context **handle) {
+    /* Release the SDRAM staging buffer if a download was in progress */
+    if (NULL != stage_buf) {
+        free(stage_buf);
+        stage_buf = NULL;
+        stage_cap = stage_len = 0;
+    }
+
     /* Release memory */
     FREE_AND_NULL(*handle);
 

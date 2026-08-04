@@ -1,4 +1,6 @@
 # Common `mender-mcu` pin policy (Dynamic Devices)
+> **Superseded:** live pin is now `feature/zephyr-ram-stage-on-main` / `dd-pin-64c10fa`. This branch kept only so old CI URLs to `DD_PIN` still resolve.
+
 
 **Status:** In force (2026-08-04)  
 **Owner:** firmware lanes using Hosted Mender MCU on Zephyr 4.4  

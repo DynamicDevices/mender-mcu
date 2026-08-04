@@ -1,5 +1,12 @@
 # mender-mcu
 
+> **Dynamic Devices consumers:** shared west pin + bump rules live in
+> [`PIN-POLICY.md`](./PIN-POLICY.md) (branch `feature/zephyr-ram-stage-on-main`).
+> Machine SoT: [`DD_PIN`](./DD_PIN) · tag `dd-pin-64c10fa` ·
+> [`scripts/check-consumer-pin.sh`](./scripts/check-consumer-pin.sh) ·
+> [`scripts/bump-consumer-pins.sh`](./scripts/bump-consumer-pins.sh).
+
+
 ## Overview
 
 mender-mcu is a fork of the [mender-mcu-client](https://github.com/joelguittet/mender-mcu-client)

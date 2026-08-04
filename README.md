@@ -5,6 +5,9 @@
 > Machine SoT: [`DD_PIN`](./DD_PIN) · tag `dd-pin-64c10fa` ·
 > [`scripts/check-consumer-pin.sh`](./scripts/check-consumer-pin.sh) ·
 > [`scripts/bump-consumer-pins.sh`](./scripts/bump-consumer-pins.sh).
+>
+> Pin scripts accept `MENDER_MCU_PIN_BRANCH`, `DD_ROOT`, and
+> `MENDER_MCU_CONSUMERS` overrides (see script headers).
 
 
 ## Overview
@@ -31,6 +34,20 @@ The decision to fork the original mender-mcu-client was made to:
   Mender ecosystem.
 * **Provide Official Support**: Ensure that the project receives the necessary attention and
   resources from Northern.tech to meet the needs of the community and enterprise users.
+
+## Zephyr RAM staging (optional)
+
+When `CONFIG_MENDER_ZEPHYR_IMAGE_UPDATE_MODULE` is enabled, the default
+`CONFIG_MENDER_ZEPHYR_IMAGE_RAM_STAGE` path accumulates the full artifact payload
+in RAM (via `mender_malloc`) during download, then writes the secondary slot in
+one pass at close. That avoids FlexSPI XIP stalls when the running image, OTA
+slot, and MCUboot share the same NOR (for example i.MX RT).
+
+- Disable with `CONFIG_MENDER_ZEPHYR_IMAGE_RAM_STAGE=n` for direct-to-flash writes.
+- Cap staging with `CONFIG_MENDER_ZEPHYR_IMAGE_RAM_STAGE_MAX_BYTES` (0 = no cap).
+- If allocation fails or the image exceeds the cap, the module falls back to
+  writing each chunk directly to flash. MCUboot still verifies the image on
+  boot; staging does not bypass signature checks.
 
 ## Get started
 

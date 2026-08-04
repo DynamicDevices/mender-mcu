@@ -6,12 +6,16 @@
 #   curl -fsSL …/scripts/check-consumer-pin.sh | bash -s -- f1-controller/west.yml
 #
 # Env:
+#   MENDER_MCU_PIN_BRANCH   branch hosting DD_PIN / PIN-POLICY (default: feature/zephyr-ram-stage-on-main)
 #   MENDER_MCU_DD_PIN_URL   override raw DD_PIN URL
 #   MENDER_MCU_DD_PIN_FILE  read pin from this file instead of URL
+#   MENDER_MCU_PIN_POLICY_URL  override policy URL shown on drift (optional)
 set -euo pipefail
 
 WEST_YML=${1:?usage: check-consumer-pin.sh <west.yml>}
-PIN_URL=${MENDER_MCU_DD_PIN_URL:-https://raw.githubusercontent.com/DynamicDevices/mender-mcu/feature/zephyr-ram-stage-on-main/DD_PIN}
+PIN_BRANCH=${MENDER_MCU_PIN_BRANCH:-feature/zephyr-ram-stage-on-main}
+PIN_URL=${MENDER_MCU_DD_PIN_URL:-https://raw.githubusercontent.com/DynamicDevices/mender-mcu/${PIN_BRANCH}/DD_PIN}
+POLICY_URL=${MENDER_MCU_PIN_POLICY_URL:-https://github.com/DynamicDevices/mender-mcu/blob/${PIN_BRANCH}/PIN-POLICY.md}
 
 if [[ ! -f "$WEST_YML" ]]; then
   echo "error: west.yml not found: $WEST_YML" >&2
@@ -70,7 +74,7 @@ if [[ "$ACTUAL" != "$EXPECTED" ]]; then
   echo "error: mender-mcu pin drift" >&2
   echo "  west.yml ($WEST_YML): $ACTUAL" >&2
   echo "  DD_PIN ($PIN_SRC):    $EXPECTED" >&2
-  echo "  policy: https://github.com/DynamicDevices/mender-mcu/blob/feature/zephyr-ram-stage-on-main/PIN-POLICY.md" >&2
+  echo "  policy: $POLICY_URL" >&2
   exit 5
 fi
 

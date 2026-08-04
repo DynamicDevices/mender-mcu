@@ -2,6 +2,9 @@
 
 > **Dynamic Devices consumers:** shared west pin + bump rules live in
 > [`PIN-POLICY.md`](./PIN-POLICY.md) (branch `feature/zephyr-4.4-mbedtls4`).
+> Machine SoT: [`DD_PIN`](./DD_PIN) · tag `dd-pin-1dbc35b` ·
+> [`scripts/check-consumer-pin.sh`](./scripts/check-consumer-pin.sh) ·
+> [`scripts/bump-consumer-pins.sh`](./scripts/bump-consumer-pins.sh).
 > Products: F1, room-display, e-ink — one full SHA across all three.
 
 ## Overview

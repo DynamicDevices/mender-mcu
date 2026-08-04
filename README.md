@@ -1,5 +1,9 @@
 # mender-mcu
 
+> **Dynamic Devices consumers:** shared west pin + bump rules live in
+> [`PIN-POLICY.md`](./PIN-POLICY.md) (branch `feature/zephyr-4.4-mbedtls4`).
+> Products: F1, room-display, e-ink — one full SHA across all three.
+
 ## Overview
 
 mender-mcu is a fork of the [mender-mcu-client](https://github.com/joelguittet/mender-mcu-client)

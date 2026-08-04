@@ -19,6 +19,8 @@
  */
 
 #include <errno.h>
+#include <stdlib.h>
+#include <string.h>
 #include <zephyr/dfu/flash_img.h>
 #include <zephyr/dfu/mcuboot.h>
 #include <zephyr/storage/flash_map.h>
@@ -44,6 +46,19 @@ static struct flash_img_context *mcu_boot_flash_handle = NULL;
 
 static bool artifact_had_payload;
 
+/*
+ * RAM staging buffer (Dynamic Devices / Josef Holzmayr sdram-stage-download).
+ *
+ * On i.MX RT FlexSPI XIP parts, slot0 (running), slot1 (OTA target) and MCUboot
+ * often share the same NOR. Writing each downloaded chunk straight to slot1
+ * suspends XIP — including Ethernet RX — and can stall TLS mid-transfer.
+ * Accumulate the image in RAM during download, then one-pass write at close.
+ * Falls back to direct-to-flash if malloc fails.
+ */
+static uint8_t *stage_buf = NULL; /* NULL => direct-to-flash fallback */
+static size_t   stage_cap = 0;
+static size_t   stage_len = 0;
+
 static mender_err_t
 mender_flash_open(const char *name, size_t size, struct flash_img_context **handle) {
     assert(NULL != name);
@@ -66,22 +81,47 @@ mender_flash_open(const char *name, size_t size, struct flash_img_context **hand
         return MENDER_FAIL;
     }
 
+    /* Stage whole image in RAM when possible (FlexSPI XIP-safe download). */
+    stage_buf = NULL;
+    stage_cap = 0;
+    stage_len = 0;
+    if (size > 0) {
+        stage_buf = malloc(size);
+        if (NULL != stage_buf) {
+            stage_cap = size;
+            mender_log_info("Staging %u bytes in RAM before flashing", (unsigned)size);
+        } else {
+            mender_log_warning("Unable to stage %u bytes in RAM; writing directly to flash", (unsigned)size);
+        }
+    }
+
     return MENDER_OK;
 }
 
 static mender_err_t
 mender_flash_write(struct flash_img_context *handle, const void *data, size_t index, size_t length) {
-    (void)index;
-
     int result;
 
-    /* Check flash handle */
+    /* Staged path: no flash I/O during download. */
+    if (NULL != stage_buf) {
+        if (index + length > stage_cap) {
+            mender_log_error("Staged image overflow: %u > %u", (unsigned)(index + length), (unsigned)stage_cap);
+            return MENDER_FAIL;
+        }
+        memcpy(stage_buf + index, data, length);
+        if (index + length > stage_len) {
+            stage_len = index + length;
+        }
+        return MENDER_OK;
+    }
+
+    (void)index;
+
+    /* Fallback: write data received directly to the update partition */
     if (NULL == handle) {
         mender_log_error("Invalid flash handle");
         return MENDER_FAIL;
     }
-
-    /* Write data received to the update partition */
     if (0 != (result = flash_img_buffered_write(handle, (const uint8_t *)data, length, false))) {
         mender_log_error("flash_img_buffered_write failed (%d)", -result);
         return MENDER_FAIL;
@@ -97,10 +137,29 @@ mender_flash_close(struct flash_img_context *handle) {
     /* Check flash handle */
     if (NULL == handle) {
         mender_log_error("Invalid flash handle");
+        if (NULL != stage_buf) {
+            free(stage_buf);
+            stage_buf = NULL;
+            stage_cap = stage_len = 0;
+        }
         return MENDER_FAIL;
     }
 
-    /* Flush data received to the update partition */
+    /* Staged path: one-pass write after download completes. */
+    if (NULL != stage_buf) {
+        mender_log_info("Writing %u staged bytes to flash", (unsigned)stage_len);
+        result = flash_img_buffered_write(handle, stage_buf, stage_len, true);
+        free(stage_buf);
+        stage_buf = NULL;
+        stage_cap = stage_len = 0;
+        if (0 != result) {
+            mender_log_error("flash_img_buffered_write failed (%d)", -result);
+            return MENDER_FAIL;
+        }
+        return MENDER_OK;
+    }
+
+    /* Fallback: flush data received to the update partition */
     if (0 != (result = flash_img_buffered_write(handle, NULL, 0, true))) {
         mender_log_error("flash_img_buffered_write failed (%d)", -result);
         return MENDER_FAIL;
@@ -136,6 +195,12 @@ mender_flash_set_pending_image(struct flash_img_context **handle) {
 
 static mender_err_t
 mender_flash_abort_deployment(struct flash_img_context **handle) {
+    if (NULL != stage_buf) {
+        free(stage_buf);
+        stage_buf = NULL;
+        stage_cap = stage_len = 0;
+    }
+
     /* Release memory */
     FREE_AND_NULL(*handle);
 

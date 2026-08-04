@@ -204,6 +204,25 @@ if MENDER_MCU_CLIENT
                 and `MCUBOOT_MODE_SWAP_USING_MOVE (`MCUBOOT_MODE_SWAP_WITHOUT_SCRATCH` for Zephyr versions below 4.1)`
                 (or another swap algorithm) must be enabled in the bootloader configuration, e.g. `sysbuild.conf`
                 if you're using sysbuild.
+
+        config MENDER_ZEPHYR_IMAGE_RAM_STAGE
+            bool "RAM-stage zephyr-image before flashing (XIP-safe)"
+            default y
+            depends on MENDER_ZEPHYR_IMAGE_UPDATE_MODULE
+            help
+                Accumulate the full artifact payload in RAM during download, then write it to the
+                secondary slot in one pass at close. This avoids FlexSPI XIP stalls when the running
+                image, OTA slot, and MCUboot share the same NOR (e.g. i.MX RT). When allocation fails,
+                or the image exceeds MENDER_ZEPHYR_IMAGE_RAM_STAGE_MAX_BYTES, the module falls back
+                to writing each chunk directly to flash.
+
+        config MENDER_ZEPHYR_IMAGE_RAM_STAGE_MAX_BYTES
+            int "Maximum payload size to stage in RAM (bytes)"
+            default 0
+            depends on MENDER_ZEPHYR_IMAGE_RAM_STAGE
+            help
+                Soft cap for RAM staging. 0 means no cap beyond available heap. Images larger than
+                this value skip staging and use direct-to-flash writes.
     endmenu
 
     menuconfig MENDER_ARTIFACT_GENERATE

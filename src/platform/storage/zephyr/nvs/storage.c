@@ -19,6 +19,7 @@
  */
 
 #include <errno.h>
+#include <zephyr/kernel.h>
 #include <zephyr/drivers/flash.h>
 /* Zephyr 4.4 moved NVS to the KVSS subsystem: zephyr/fs/nvs.h -> zephyr/kvss/nvs.h. */
 #if defined(__has_include) && __has_include(<zephyr/kvss/nvs.h>)
@@ -129,6 +130,8 @@ static char *cached_artifact_name = NULL;
  * @brief NVS storage handle
  */
 static struct nvs_fs mender_storage_nvs_handle;
+static bool f1_nvs_mounted;
+K_MUTEX_DEFINE(f1_nvs_owner_lock);
 
 #ifdef CONFIG_MENDER_DEPLOYMENT_LOGS
 /* just some fixed magic value the FCB implementation uses to mark
@@ -183,20 +186,22 @@ checked_nvs_write(struct nvs_fs *fs, uint16_t id, const void *data, size_t len) 
 
 #ifdef CONFIG_MENDER_STORAGE_DEPLOYMENT_DATA_CRC
 static mender_err_t
-crc_add(char **data, size_t *data_len) {
+crc_add(const char *data, size_t *data_len, char **result) {
 
     assert(NULL != data);
     assert(NULL != data_len);
+    assert(NULL != result);
 
-    uint32_t crc = crc32_ieee(*data, *data_len);
-    char    *tmp = mender_realloc(*data, *data_len + sizeof(crc));
+    uint32_t crc = crc32_ieee(data, *data_len);
+    char    *tmp = mender_malloc(*data_len + sizeof(crc));
     if (NULL == tmp) {
         mender_log_error("Unable to allocate memory for deployment data");
         return MENDER_FAIL;
     }
+    memcpy(tmp, data, *data_len);
     memcpy(tmp + *data_len, &crc, sizeof(crc));
     *data_len += sizeof(crc);
-    *data = tmp;
+    *result = tmp;
 
     return MENDER_OK;
 }
@@ -227,8 +232,8 @@ crc_check(const unsigned char *data, const size_t data_len) {
 }
 #endif /* CONFIG_MENDER_STORAGE_DEPLOYMENT_DATA_CRC */
 
-mender_err_t
-mender_storage_init(void) {
+static mender_err_t
+mender_storage_init_impl(bool mount_only) {
     int                      result;
     int                      part_id;
     uint16_t                 sector_offset;
@@ -304,10 +309,15 @@ mender_storage_init(void) {
     mender_storage_nvs_handle.sector_count = CONFIG_MENDER_STORAGE_NVS_SECTOR_COUNT;
 
     /* Mount NVS */
-    if (0 != (result = nvs_mount(&mender_storage_nvs_handle))) {
+    if (!f1_nvs_mounted && 0 != (result = nvs_mount(&mender_storage_nvs_handle))) {
         mender_log_error("Unable to mount NVS storage, result = %d", result);
         return MENDER_FAIL;
     }
+    f1_nvs_mounted = true;
+    if (mount_only) {
+        return MENDER_OK;
+    }
+
     mender_log_debug("Initialized Mender NVS at 0x%jx with %u sectors (%zu bytes available)",
                      (uintmax_t)mender_storage_nvs_handle.offset,
                      mender_storage_nvs_handle.sector_count,
@@ -534,13 +544,21 @@ mender_storage_set_deployment_data(char *deployment_data) {
     size_t data_len = strlen(deployment_data) + 1;
 
 #ifdef CONFIG_MENDER_STORAGE_DEPLOYMENT_DATA_CRC
-    if (MENDER_OK != crc_add(&deployment_data, &data_len)) {
+    char *crc_data = NULL;
+    if (MENDER_OK != crc_add(deployment_data, &data_len, &crc_data)) {
         return MENDER_FAIL;
     }
+    const char *write_data = crc_data;
+#else
+    const char *write_data = deployment_data;
 #endif /* CONFIG_MENDER_STORAGE_DEPLOYMENT_DATA_CRC */
 
     /* Write deployment data  */
-    if (nvs_write(&mender_storage_nvs_handle, MENDER_STORAGE_NVS_DEPLOYMENT_DATA, deployment_data, data_len) < 0) {
+    ssize_t written = nvs_write(&mender_storage_nvs_handle, MENDER_STORAGE_NVS_DEPLOYMENT_DATA, write_data, data_len);
+#ifdef CONFIG_MENDER_STORAGE_DEPLOYMENT_DATA_CRC
+    mender_free(crc_data);
+#endif
+    if (written < 0) {
         mender_log_error("Unable to write deployment data");
         return MENDER_FAIL;
     }
@@ -567,11 +585,49 @@ mender_storage_get_deployment_data(char **deployment_data) {
 
 #ifdef CONFIG_MENDER_STORAGE_DEPLOYMENT_DATA_CRC
     if (MENDER_OK != crc_check(*deployment_data, deployment_data_length)) {
+        mender_free(*deployment_data);
+        *deployment_data = NULL;
         return MENDER_FAIL;
     }
 #endif /* CONFIG_MENDER_STORAGE_DEPLOYMENT_DATA_CRC */
 
     return MENDER_OK;
+}
+
+/* F1 application records: one NVS owner, distinct from Mender IDs1..5.
+ * nvs_read/write serialize internal metadata through the NVS mutex. */
+mender_err_t mender_storage_init(void)
+{
+    k_mutex_lock(&f1_nvs_owner_lock, K_FOREVER);
+    mender_err_t rc = mender_storage_init_impl(false);
+    k_mutex_unlock(&f1_nvs_owner_lock);
+    return rc;
+}
+int mender_storage_f1_init(void)
+{
+    k_mutex_lock(&f1_nvs_owner_lock, K_FOREVER);
+    int rc = f1_nvs_mounted ? 0 : (mender_storage_init_impl(true) == MENDER_OK ? 0 : -EIO);
+    /* A maximum F1 record is2448 bytes plus NVS metadata. */
+    if (!rc && mender_storage_nvs_handle.sector_size < 2464) rc = -ENOSPC;
+    k_mutex_unlock(&f1_nvs_owner_lock);
+    return rc;
+}
+int mender_storage_f1_read(unsigned slot, void *data, size_t capacity)
+{
+    if (slot > 5 || !data || !capacity || capacity > 2448) return -EINVAL;
+    k_mutex_lock(&f1_nvs_owner_lock, K_FOREVER);
+    int rc = f1_nvs_mounted ? (int)nvs_read(&mender_storage_nvs_handle, 0xf100 + slot, data, capacity) : -ENODEV;
+    k_mutex_unlock(&f1_nvs_owner_lock);
+    return rc;
+}
+int mender_storage_f1_write(unsigned slot, const void *data, size_t length)
+{
+    if (slot > 5 || !data || length < 16 || length > 2448) return -EINVAL;
+    k_mutex_lock(&f1_nvs_owner_lock, K_FOREVER);
+    int rc = f1_nvs_mounted ? (int)nvs_write(&mender_storage_nvs_handle, 0xf100 + slot, data, length) : -ENODEV;
+    k_mutex_unlock(&f1_nvs_owner_lock);
+    /* NVS reports0 for an identical already-durable record. */
+    return rc == 0 || rc == (int)length ? 0 : (rc < 0 ? rc : -EIO);
 }
 
 mender_err_t

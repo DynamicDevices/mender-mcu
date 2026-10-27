@@ -18,6 +18,9 @@
  */
 
 #include "deployment-data.h"
+#include <mender/client.h>
+#include <string.h>
+#include <math.h>
 
 #include "log.h"
 #include "storage.h"
@@ -140,6 +143,47 @@ mender_set_deployment_data(mender_deployment_data_t *deployment_data) {
     }
     mender_free(json_str);
 
+    return MENDER_OK;
+}
+
+
+/* Read-only diagnostic: use a fresh validated storage object rather than
+ * sharing the running client's mutable deployment object. Never export JSON,
+ * artifact URLs, credentials or raw NVS. Unknown/corrupt state is not idle. */
+mender_err_t
+mender_client_get_persisted_update_summary(char deployment_id[37], int *state) {
+    if (deployment_id == NULL || state == NULL) { return MENDER_FAIL; }
+    deployment_id[0] = '\0';
+    *state = -1;
+    mender_deployment_data_t *data = NULL;
+    mender_err_t ret = mender_get_deployment_data(&data);
+    if (ret != MENDER_OK) { return ret; }
+    const char *id = NULL;
+    const cJSON *state_item = cJSON_GetObjectItemCaseSensitive(data, MENDER_DEPLOYMENT_DATA_KEY_STATE);
+    double number = cJSON_GetNumberValue(state_item);
+    if (!cJSON_IsNumber(state_item) || !isfinite(number) || number < 0
+        || number > MENDER_UPDATE_STATE_END || number != (double)(int)number) {
+        mender_delete_deployment_data(data);
+        return MENDER_FAIL;
+    }
+    mender_update_state_t pending_state;
+    if (mender_deployment_data_get_id(data, &id) != MENDER_OK || id == NULL
+        || strlen(id) != 36 || mender_deployment_data_get_state(data, &pending_state) != MENDER_OK) {
+        mender_delete_deployment_data(data);
+        return MENDER_FAIL;
+    }
+    for (size_t i = 0; i < 36; ++i) {
+        bool hyphen = i == 8 || i == 13 || i == 18 || i == 23;
+        bool hex = (id[i] >= '0' && id[i] <= '9') || (id[i] >= 'a' && id[i] <= 'f')
+            || (id[i] >= 'A' && id[i] <= 'F');
+        if ((hyphen && id[i] != '-') || (!hyphen && !hex)) {
+            mender_delete_deployment_data(data);
+            return MENDER_FAIL;
+        }
+    }
+    memcpy(deployment_id, id, 37);
+    *state = (int)pending_state;
+    mender_delete_deployment_data(data);
     return MENDER_OK;
 }
 

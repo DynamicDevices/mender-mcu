@@ -13,10 +13,10 @@ divergent local copies of the client.
 |-------|--------|
 | Remote | `https://github.com/DynamicDevices/mender-mcu` |
 | Branch (development) | `feature/zephyr-ram-stage-on-main` |
-| **West `revision`** | **`3228f3c7e7290be58d4fcb00e8ae17bd93d43839`** (full 40-char SHA) |
-| Short | `3228f3c` — *do not* use abbreviated SHAs in west manifests (CI `west update -o=--depth=1` cannot resolve them) |
+| **West `revision`** | **`a0c6e2d456c7c5b8aeed17245a024a2dc302788d`** (full 40-char SHA) |
+| Short | `a0c6e2d` — *do not* use abbreviated SHAs in west manifests (CI `west update -o=--depth=1` cannot resolve them) |
 | **Machine pin** | [`DD_PIN`](./DD_PIN) (one SHA, one line) — CI SoT |
-| **Immutable tag** | `dd-pin-3228f3c` planned; not created or activated by this draft |
+| **Immutable tag** | `dd-pin-a0c6e2d` planned; not created or activated by this draft |
 
 What this pin includes:
 
@@ -28,7 +28,7 @@ What this pin includes:
 This proposed bump is not activated while its coordinated PRs remain drafts.
 The canonical branch still names the previous pin until an independently
 approved integration. Consumer CI must continue to reject canonical pin drift.
-Four focused synthetic F1 sanitizer fixture groups pass; shared native_sim
+Five focused synthetic F1 sanitizer fixture groups pass; shared native_sim
 smokes and the applicable hardware matrix remain separate pending evidence.
 
 Predecessor pin `1dbc35b` on `feature/zephyr-4.4-mbedtls4` is **superseded** (local TLS/4.4 port replaced by upstream #247).

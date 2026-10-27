@@ -94,6 +94,13 @@ const char *mender_client_version(void);
 mender_err_t mender_client_init(mender_client_config_t *config, mender_client_callbacks_t *callbacks);
 
 /**
+ * @brief Read persisted update metadata without exporting payloads or secrets.
+ * @return MENDER_NOT_FOUND when idle, MENDER_OK with validated UUID/state when
+ * pending, or another error when state cannot safely be established. No writes.
+ */
+mender_err_t mender_client_get_persisted_update_summary(char deployment_id[37], int *state);
+
+/**
  * @brief Activate mender client
  * @return MENDER_OK if the function succeeds, error code otherwise
  */
@@ -113,6 +120,9 @@ mender_err_t mender_client_deactivate(void);
  * @return MENDER_OK if the function succeeds, error code otherwise
  */
 mender_err_t mender_client_execute(void);
+
+/** Pin this boot's client to one deployment before activation; immutable until reboot. */
+mender_err_t mender_client_pin_deployment(const char *deployment_id);
 
 /**
  * @brief Release mender client

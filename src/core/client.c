@@ -155,6 +155,43 @@ static bool mender_client_network_connected = false;
  *        operation can resume or roll back across reboots
  */
 static mender_deployment_data_t *mender_client_deployment_data = NULL;
+static char mender_expected_deployment[37];
+static bool mender_expected_deployment_spent;
+/* A failed state write forbids further update callbacks until a fresh boot. */
+static bool mender_state_persistence_failed;
+static bool mender_terminal_cleanup_pending;
+
+static mender_err_t
+mender_client_retry_terminal_cleanup(void) {
+    /* Consume a pinned deployment before cleanup can expose an absent record.
+     * A live client must never execute that UUID again during this boot. */
+    if(mender_expected_deployment[0]!='\0')mender_expected_deployment_spent=true;
+    mender_err_t ret = mender_storage_delete_deployment_data();
+    mender_terminal_cleanup_pending = (ret != MENDER_OK);
+    return ret;
+}
+
+mender_err_t
+mender_client_pin_deployment(const char *id) {
+    if (NULL == id || strlen(id) != 36 || mender_expected_deployment[0] != '\0') {
+        return MENDER_FAIL;
+    }
+    for (size_t i = 0; i < 36; ++i) {
+        bool hyphen = i == 8 || i == 13 || i == 18 || i == 23;
+        char c = id[i];
+        if (hyphen ? c != '-' : !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+            return MENDER_FAIL;
+        }
+    }
+    memcpy(mender_expected_deployment, id, sizeof(mender_expected_deployment));
+    return MENDER_OK;
+}
+
+static bool
+mender_client_deployment_allowed(const char *id) {
+    return mender_expected_deployment[0] == '\0' ||
+           (!mender_expected_deployment_spent && NULL != id && strcmp(mender_expected_deployment, id) == 0);
+}
 
 /**
  * @brief Update module being used by the current deployment
@@ -1014,6 +1051,12 @@ mender_client_check_deployment(mender_api_deployment_data_t **deployment_data) {
         return MENDER_FAIL;
     }
 
+    /* Enforce the local proof pin before creating/persisting or downloading. */
+    if (!mender_client_deployment_allowed(deployment->id)) {
+        mender_log_error("Deployment refused: differs from locally pinned update");
+        return MENDER_FAIL;
+    }
+
     /* Create deployment data */
     if (NULL != mender_client_deployment_data) {
         mender_log_warning("Unexpected stale deployment data");
@@ -1039,12 +1082,14 @@ set_and_store_state(const mender_update_state_t state) {
     /* Set state in deployment data */
     if (MENDER_OK != (ret = mender_deployment_data_set_state(mender_client_deployment_data, state))) {
         mender_log_error("Failed to set deployment data state");
+        mender_state_persistence_failed = true;
         return ret;
     }
 
     /* Store deployment data */
     if (MENDER_OK != (ret = mender_set_deployment_data(mender_client_deployment_data))) {
         mender_log_error("Failed to store deployment data");
+        mender_state_persistence_failed = true;
         return ret;
     }
     return ret;
@@ -1052,6 +1097,13 @@ set_and_store_state(const mender_update_state_t state) {
 
 static mender_err_t
 mender_client_update_work_function(void) {
+    if (mender_state_persistence_failed) {
+        return MENDER_FAIL;
+    }
+    if (mender_terminal_cleanup_pending) {
+        /* One attempt per scheduled run; no new deployment until cleanup succeeds. */
+        return mender_client_retry_terminal_cleanup();
+    }
     mender_err_t ret = MENDER_OK;
 
     /* Ensure that the context is initialized to NULL before goto END */
@@ -1067,11 +1119,21 @@ mender_client_update_work_function(void) {
 
     if (NULL != mender_client_deployment_data) {
         mender_deployment_data_get_id(mender_client_deployment_data, &deployment_id);
+        if (!mender_client_deployment_allowed(deployment_id)) {
+            mender_log_error("Resume refused: differs from locally pinned update");
+            return MENDER_FAIL;
+        }
     }
 
     {
         const char           *artifact_type;
         mender_update_state_t update_state_resume;
+        if (MENDER_OK == mender_deployment_data_get_state(mender_client_deployment_data, &update_state_resume)
+            && update_state_resume == MENDER_UPDATE_STATE_END) {
+            /* A reboot may follow a failed terminal-record deletion. */
+            ret = mender_client_retry_terminal_cleanup();
+            goto END;
+        }
         if (MENDER_OK == (ret = mender_deployment_data_get_state(mender_client_deployment_data, &update_state_resume))
             && MENDER_OK == mender_deployment_data_get_payload_type(mender_client_deployment_data, &artifact_type)) {
             update_state = update_state_resume;
@@ -1111,15 +1173,15 @@ mender_client_update_work_function(void) {
         update_state = update_state_transitions[update_state].success;         \
         assert(NULL != mender_update_module);                                  \
         mender_log_debug("Entering state %s", update_state_str[update_state]); \
-        if (MENDER_LOOP_DETECTED == set_and_store_state(update_state)) {       \
-            update_state = MENDER_UPDATE_STATE_FAILURE;                        \
+        if (MENDER_OK != (ret = set_and_store_state(update_state))) {          \
+            goto END;                                                          \
         }                                                                      \
     } else {                                                                   \
         update_state = update_state_transitions[update_state].failure;         \
         mender_log_debug("Entering state %s", update_state_str[update_state]); \
         if (NULL != mender_update_module) {                                    \
-            if (MENDER_LOOP_DETECTED == set_and_store_state(update_state)) {   \
-                update_state = MENDER_UPDATE_STATE_FAILURE;                    \
+            if (MENDER_OK != (ret = set_and_store_state(update_state))) {      \
+                goto END;                                                      \
             }                                                                  \
         }                                                                      \
         ret = MENDER_OK;                                                       \
@@ -1225,7 +1287,9 @@ mender_client_update_work_function(void) {
                         /* Save the next state before running the install callback.
                          * If there is a spontaneous reboot right after the callback
                          * we assure that we don't get stuck in a potential pending image in slot 1 */
-                        set_and_store_state(MENDER_UPDATE_STATE_REBOOT);
+                        if (MENDER_OK != (ret = set_and_store_state(MENDER_UPDATE_STATE_REBOOT))) {
+                            goto END;
+                        }
                     }
                     ret = mender_update_module->callbacks[update_state](update_state, (mender_update_state_data_t)NULL);
                 }
@@ -1239,7 +1303,9 @@ mender_client_update_work_function(void) {
                         /* skip reboot */
                         update_state = MENDER_UPDATE_STATE_COMMIT;
                         mender_log_debug("Entering state %s", update_state_str[update_state]);
-                        set_and_store_state(update_state);
+                        if (MENDER_OK != (ret = set_and_store_state(update_state))) {
+                            goto END;
+                        }
                         continue;
                     }
                 }
@@ -1259,7 +1325,9 @@ mender_client_update_work_function(void) {
                      * verification should happen anyway, the callback in that
                      * state should be able to see if things went well or
                      * wrong. */
-                    set_and_store_state(MENDER_UPDATE_STATE_VERIFY_REBOOT);
+                    if (MENDER_OK != (ret = set_and_store_state(MENDER_UPDATE_STATE_VERIFY_REBOOT))) {
+                        goto END;
+                    }
                     ret = mender_update_module->callbacks[update_state](update_state, (mender_update_state_data_t)NULL);
                     if (MENDER_OK == ret) {
                         /* now we need to get outside of the loop so that a
@@ -1344,7 +1412,10 @@ mender_client_update_work_function(void) {
                     ret = MENDER_FAIL;
                 }
                 NEXT_STATE;
-                mender_storage_delete_deployment_data();
+                ret = mender_client_retry_terminal_cleanup();
+                if (MENDER_OK != ret) {
+                    goto END;
+                }
                 break; /* below is the failure path */
 
             case MENDER_UPDATE_STATE_ROLLBACK:
@@ -1360,7 +1431,9 @@ mender_client_update_work_function(void) {
             case MENDER_UPDATE_STATE_ROLLBACK_REBOOT:
                 /* Save the next state before running the reboot callback (see
                  * STATE_REBOOT for details). */
-                set_and_store_state(MENDER_UPDATE_STATE_ROLLBACK_VERIFY_REBOOT);
+                if (MENDER_OK != (ret = set_and_store_state(MENDER_UPDATE_STATE_ROLLBACK_VERIFY_REBOOT))) {
+                    goto END;
+                }
                 ret = mender_update_module->callbacks[update_state](update_state, (mender_update_state_data_t)NULL);
 
                 if (MENDER_OK == ret) {

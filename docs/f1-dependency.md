@@ -46,6 +46,13 @@ failed deletion, preventing reuse in that boot. An unpinned client retains its
 normal deployment-selection behavior.
 
 State persistence errors now stop update callbacks for the rest of the boot.
+This latch is intentional: a later successful probe must not silently resume
+callbacks after the relationship between durable state and performed actions
+became uncertain. Recovery requires a subsequent boot with state validation;
+automatic in-boot retry/clearing is not part of this API contract.
+Loop detection is different from a persistence error: its counter-reset signal
+transitions to FAILURE, persists that state and enters normal failure handling.
+If persisting FAILURE fails, the same fail-closed latch stops callbacks.
 Terminal-record deletion failures are retried on a subsequent scheduled run;
 new deployment work remains blocked while cleanup is pending. A resumed END
 record is cleaned up instead of replaying update callbacks.

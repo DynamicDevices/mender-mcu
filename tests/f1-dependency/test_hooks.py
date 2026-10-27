@@ -58,7 +58,7 @@ COMMON = r'''
 #include <errno.h>
 #include <math.h>
 typedef int mender_err_t;
-enum { MENDER_OK=0, MENDER_FAIL=-1, MENDER_NOT_FOUND=-2 };
+enum { MENDER_OK=0, MENDER_FAIL=-1, MENDER_NOT_FOUND=-2, MENDER_LOOP_DETECTED=-3 };
 #define mender_log_error(...) ((void)0)
 '''
 
@@ -168,6 +168,86 @@ int main(void) {
     return 0;
 }
 ''')
+
+    def test_loop_detection_enters_persisted_failure_without_weakening_latch(self):
+        path = "src/core/client.c"
+        source = (ROOT / path).read_text()
+        macro = source[source.index("#define NEXT_STATE"):source.index("\n\n    if (spontaneous_reboot)")]
+        stubs = r'''
+typedef int mender_update_state_t;
+enum { DOWNLOAD, INSTALL, MENDER_UPDATE_STATE_FAILURE, MENDER_UPDATE_STATE_END };
+static const struct { int success, failure; } update_state_transitions[] = {
+    {INSTALL, MENDER_UPDATE_STATE_FAILURE},
+    {MENDER_UPDATE_STATE_END, MENDER_UPDATE_STATE_FAILURE},
+    {MENDER_UPDATE_STATE_END, MENDER_UPDATE_STATE_END}
+};
+static bool mender_state_persistence_failed;
+static void *mender_client_deployment_data;
+static int writes[4], write_count, last_state, fail_set;
+static int install_calls, failure_calls;
+static void *mender_update_module = (void *)1;
+#define mender_log_debug(...) ((void)0)
+static int mender_deployment_data_set_state(void *data, int state) {
+    (void)data; last_state = state; return fail_set ? MENDER_FAIL : MENDER_OK;
+}
+static int mender_set_deployment_data(void *data) {
+    (void)data; assert(write_count < 4); return writes[write_count++];
+}
+'''
+        functions = "".join(function(path, name) for name in
+                            ["set_and_store_state", "mender_client_persist_transition"])
+        harness = r'''
+static int run(int initial_result) {
+    int ret = initial_result, update_state = DOWNLOAD;
+    while (update_state != MENDER_UPDATE_STATE_END) {
+        switch (update_state) {
+        case DOWNLOAD:
+            NEXT_STATE;
+            /* fall through */
+        case INSTALL:
+            install_calls++; ret = MENDER_OK;
+            NEXT_STATE;
+            break;
+        case MENDER_UPDATE_STATE_FAILURE:
+            assert(last_state == MENDER_UPDATE_STATE_FAILURE);
+            assert(!mender_state_persistence_failed);
+            failure_calls++; ret = MENDER_OK;
+            NEXT_STATE;
+            break;
+        default: abort();
+        }
+    }
+END:
+    return ret;
+}
+static void reset(void) {
+    memset(writes, 0, sizeof(writes)); write_count = 0; last_state = -1;
+    fail_set = 0; install_calls = 0; failure_calls = 0;
+    mender_state_persistence_failed = false;
+}
+int main(void) {
+    reset(); writes[0] = MENDER_LOOP_DETECTED;
+    assert(run(MENDER_OK) == MENDER_OK);
+    assert(install_calls == 0 && failure_calls == 1 && write_count == 3);
+    assert(!mender_state_persistence_failed);
+    reset(); writes[0] = MENDER_LOOP_DETECTED;
+    assert(run(MENDER_FAIL) == MENDER_OK);
+    assert(install_calls == 0 && failure_calls == 1 && write_count == 3);
+    reset(); writes[0] = MENDER_FAIL;
+    assert(run(MENDER_OK) == MENDER_FAIL);
+    assert(install_calls == 0 && failure_calls == 0 && mender_state_persistence_failed);
+    reset(); writes[0] = MENDER_LOOP_DETECTED; writes[1] = MENDER_FAIL;
+    assert(run(MENDER_OK) == MENDER_FAIL);
+    assert(install_calls == 0 && failure_calls == 0 && mender_state_persistence_failed);
+    reset(); fail_set = 1;
+    assert(run(MENDER_OK) == MENDER_FAIL);
+    assert(write_count == 0 && failure_calls == 0 && mender_state_persistence_failed);
+    reset(); assert(run(MENDER_OK) == MENDER_OK);
+    assert(install_calls == 1 && failure_calls == 0 && !mender_state_persistence_failed);
+    return 0;
+}
+'''
+        self.compile_run(stubs + functions + macro + "\n" + harness)
 
     def test_crc_preserves_caller_allocation(self):
         stubs = r'''

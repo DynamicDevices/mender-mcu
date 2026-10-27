@@ -1089,8 +1089,24 @@ set_and_store_state(const mender_update_state_t state) {
     /* Store deployment data */
     if (MENDER_OK != (ret = mender_set_deployment_data(mender_client_deployment_data))) {
         mender_log_error("Failed to store deployment data");
-        mender_state_persistence_failed = true;
+        /* Loop detection is a control-flow signal, not a storage failure. The
+         * deployment-data helper resets its counter so FAILURE can be saved. */
+        if (MENDER_LOOP_DETECTED != ret) {
+            mender_state_persistence_failed = true;
+        }
         return ret;
+    }
+    return ret;
+}
+
+static mender_err_t
+mender_client_persist_transition(mender_update_state_t *state) {
+    mender_err_t ret = set_and_store_state(*state);
+    if (MENDER_LOOP_DETECTED == ret) {
+        *state = MENDER_UPDATE_STATE_FAILURE;
+        /* Save FAILURE before running its callbacks. A real write failure
+         * still latches the fail-closed guard and prevents further work. */
+        ret = set_and_store_state(*state);
     }
     return ret;
 }
@@ -1173,14 +1189,17 @@ mender_client_update_work_function(void) {
         update_state = update_state_transitions[update_state].success;         \
         assert(NULL != mender_update_module);                                  \
         mender_log_debug("Entering state %s", update_state_str[update_state]); \
-        if (MENDER_OK != (ret = set_and_store_state(update_state))) {          \
+        if (MENDER_OK != (ret = mender_client_persist_transition(&update_state))) { \
             goto END;                                                          \
+        }                                                                      \
+        if (MENDER_UPDATE_STATE_FAILURE == update_state) {                     \
+            continue;                                                          \
         }                                                                      \
     } else {                                                                   \
         update_state = update_state_transitions[update_state].failure;         \
         mender_log_debug("Entering state %s", update_state_str[update_state]); \
         if (NULL != mender_update_module) {                                    \
-            if (MENDER_OK != (ret = set_and_store_state(update_state))) {      \
+            if (MENDER_OK != (ret = mender_client_persist_transition(&update_state))) { \
                 goto END;                                                      \
             }                                                                  \
         }                                                                      \

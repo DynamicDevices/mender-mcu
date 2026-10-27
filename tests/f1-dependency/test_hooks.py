@@ -172,6 +172,8 @@ int main(void) {
     def test_loop_detection_enters_persisted_failure_without_weakening_latch(self):
         path = "src/core/client.c"
         source = (ROOT / path).read_text()
+        worker = function(path, "mender_client_update_work_function")
+        self.assertNotIn("set_and_store_state(", worker)
         macro = source[source.index("#define NEXT_STATE"):source.index("\n\n    if (spontaneous_reboot)")]
         stubs = r'''
 typedef int mender_update_state_t;

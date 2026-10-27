@@ -288,6 +288,7 @@ static mender_err_t mender_client_publish_deployment_status(const char *id, mend
  * @return MENDER_OK in case of success, error code otherwise
  */
 static mender_err_t set_and_store_state(const mender_update_state_t state);
+static mender_err_t mender_client_persist_transition(mender_update_state_t *state);
 
 mender_err_t
 mender_client_validate_device_tier(const char *device_tier) {
@@ -631,7 +632,7 @@ mender_client_work_function(void) {
                     } else {
                         update_state = update_state_transitions[update_state].failure;
                     }
-                    if (MENDER_OK != set_and_store_state(update_state)) {
+                    if (MENDER_OK != mender_client_persist_transition(&update_state)) {
                         mender_log_error("Failed to save new state");
                     }
                 }
@@ -1128,6 +1129,7 @@ mender_client_update_work_function(void) {
     /* Check for deployment */
     mender_api_deployment_data_t *deployment    = NULL;
     mender_update_state_t         update_state  = MENDER_UPDATE_STATE_DOWNLOAD;
+    mender_update_state_t         next_state    = MENDER_UPDATE_STATE_DOWNLOAD;
     const char                   *deployment_id = NULL;
 
     /* reset the currently used update module */
@@ -1306,8 +1308,13 @@ mender_client_update_work_function(void) {
                         /* Save the next state before running the install callback.
                          * If there is a spontaneous reboot right after the callback
                          * we assure that we don't get stuck in a potential pending image in slot 1 */
-                        if (MENDER_OK != (ret = set_and_store_state(MENDER_UPDATE_STATE_REBOOT))) {
+                        next_state = MENDER_UPDATE_STATE_REBOOT;
+                        if (MENDER_OK != (ret = mender_client_persist_transition(&next_state))) {
                             goto END;
+                        }
+                        if (MENDER_UPDATE_STATE_FAILURE == next_state) {
+                            update_state = next_state;
+                            continue;
                         }
                     }
                     ret = mender_update_module->callbacks[update_state](update_state, (mender_update_state_data_t)NULL);
@@ -1322,7 +1329,7 @@ mender_client_update_work_function(void) {
                         /* skip reboot */
                         update_state = MENDER_UPDATE_STATE_COMMIT;
                         mender_log_debug("Entering state %s", update_state_str[update_state]);
-                        if (MENDER_OK != (ret = set_and_store_state(update_state))) {
+                        if (MENDER_OK != (ret = mender_client_persist_transition(&update_state))) {
                             goto END;
                         }
                         continue;
@@ -1344,8 +1351,13 @@ mender_client_update_work_function(void) {
                      * verification should happen anyway, the callback in that
                      * state should be able to see if things went well or
                      * wrong. */
-                    if (MENDER_OK != (ret = set_and_store_state(MENDER_UPDATE_STATE_VERIFY_REBOOT))) {
+                    next_state = MENDER_UPDATE_STATE_VERIFY_REBOOT;
+                    if (MENDER_OK != (ret = mender_client_persist_transition(&next_state))) {
                         goto END;
+                    }
+                    if (MENDER_UPDATE_STATE_FAILURE == next_state) {
+                        update_state = next_state;
+                        continue;
                     }
                     ret = mender_update_module->callbacks[update_state](update_state, (mender_update_state_data_t)NULL);
                     if (MENDER_OK == ret) {
@@ -1450,8 +1462,13 @@ mender_client_update_work_function(void) {
             case MENDER_UPDATE_STATE_ROLLBACK_REBOOT:
                 /* Save the next state before running the reboot callback (see
                  * STATE_REBOOT for details). */
-                if (MENDER_OK != (ret = set_and_store_state(MENDER_UPDATE_STATE_ROLLBACK_VERIFY_REBOOT))) {
+                next_state = MENDER_UPDATE_STATE_ROLLBACK_VERIFY_REBOOT;
+                if (MENDER_OK != (ret = mender_client_persist_transition(&next_state))) {
                     goto END;
+                }
+                if (MENDER_UPDATE_STATE_FAILURE == next_state) {
+                    update_state = next_state;
+                    continue;
                 }
                 ret = mender_update_module->callbacks[update_state](update_state, (mender_update_state_data_t)NULL);
 

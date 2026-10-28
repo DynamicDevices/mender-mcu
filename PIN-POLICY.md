@@ -13,15 +13,23 @@ divergent local copies of the client.
 |-------|--------|
 | Remote | `https://github.com/DynamicDevices/mender-mcu` |
 | Branch (development) | `feature/zephyr-ram-stage-on-main` |
-| **West `revision`** | **`64c10faad9d9150fd85202914c79c7d4c067dcd2`** (full 40-char SHA) |
-| Short | `64c10fa` — *do not* use abbreviated SHAs in west manifests (CI `west update -o=--depth=1` cannot resolve them) |
+| **West `revision`** | **`a0c6e2d456c7c5b8aeed17245a024a2dc302788d`** (full 40-char SHA) |
+| Short | `a0c6e2d` — *do not* use abbreviated SHAs in west manifests (CI `west update -o=--depth=1` cannot resolve them) |
 | **Machine pin** | [`DD_PIN`](./DD_PIN) (one SHA, one line) — CI SoT |
-| **Immutable tag** | `dd-pin-64c10fa` → same SHA (retag on each client bump) |
+| **Immutable tag** | `dd-pin-a0c6e2d` planned; not created or activated by this draft |
 
 What this pin includes:
 
 - Upstream `mendersoftware/mender-mcu` `main` @ `55fa6a1` (Zephyr **4.4** / Mbed TLS **4.x** via #247, plus later mainline)  
 - `zephyr-image` **RAM staging** before secondary-slot write (FlexSPI XIP-safe on i.MX RT) — DD delta on this branch  
+- F1 application NVS and validated persisted update-state hooks, added on top of
+  the existing shared-client history; RAM-staging update-module source unchanged.
+
+This proposed bump is not activated while its coordinated PRs remain drafts.
+The canonical branch still names the previous pin until an independently
+approved integration. Consumer CI must continue to reject canonical pin drift.
+Five focused synthetic F1 sanitizer fixture groups pass; shared native_sim
+smokes and the applicable hardware matrix remain separate pending evidence.
 
 Predecessor pin `1dbc35b` on `feature/zephyr-4.4-mbedtls4` is **superseded** (local TLS/4.4 port replaced by upstream #247).
 
@@ -34,7 +42,8 @@ west bumps — west tracks the **client** commit in `DD_PIN`, not branch tip.
 |---------|----------|-------------|
 | F1 gateway | [`zephyr-rt1186-f1`](https://github.com/DynamicDevices/zephyr-rt1186-f1) `f1-controller/west.yml` | FRDM-IMXRT1186 |
 | Room display | [`zephyr-rt1170-room-display`](https://github.com/DynamicDevices/zephyr-rt1170-room-display) `room-display/west.yml` | MIMXRT1170-EVK |
-| E-ink / RT118x integration | [`zephyr-rt1170-eink`](https://github.com/DynamicDevices/zephyr-rt1170-eink) `mender-mcu-integration/west.yml` | RT1180-EVK / FRDM-1186 reference |
+| E-ink / RT118x integration | [`zephyr-rt1186-eink`](https://github.com/DynamicDevices/zephyr-rt1186-eink) `mender-mcu-integration/west.yml` | RT1180-EVK / FRDM-1186 reference |
+| F1 Flexi controller | [`zephyr-mcx-f1-flexi`](https://github.com/active-esl/zephyr-mcx-f1-flexi) `app/west.yml` | MCXN947 candidate; hardware proof separate |
 
 Agent skill (ops): `~/.cursor/skills/mender-hosted/` — Hosted tenant/PAT, deploy, accept.
 

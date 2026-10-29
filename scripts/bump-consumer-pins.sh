@@ -5,10 +5,14 @@
 #   ./scripts/bump-consumer-pins.sh <full-40-char-sha>           # dry-run
 #   ./scripts/bump-consumer-pins.sh <full-40-char-sha> --apply   # write files
 #
-# Expects sibling checkouts under DD_ROOT (default /data_drive/dd):
-#   zephyr-rt1186-f1
-#   zephyr-rt1170-room-display
-#   zephyr-rt1170-eink
+# Env:
+#   DD_ROOT                 parent of consumer checkouts (default: /data_drive/dd)
+#   MENDER_MCU_CONSUMERS    override consumer list as "repo|rel[,repo|rel...]"
+#
+# Default consumers (under DD_ROOT):
+#   zephyr-rt1186-f1|f1-controller/west.yml
+#   zephyr-rt1170-room-display|room-display/west.yml
+#   zephyr-rt1170-eink|mender-mcu-integration/west.yml
 #
 # Does not git commit/push — review, then commit each repo (and retag dd-pin-*).
 set -euo pipefail
@@ -27,15 +31,23 @@ SHORT=${NEW:0:7}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DD_ROOT=${DD_ROOT:-/data_drive/dd}
 
-CONSUMERS=(
+DEFAULT_CONSUMERS=(
   "zephyr-rt1186-f1|f1-controller/west.yml"
   "zephyr-rt1170-room-display|room-display/west.yml"
   "zephyr-rt1170-eink|mender-mcu-integration/west.yml"
 )
 
+CONSUMERS=()
+if [[ -n "${MENDER_MCU_CONSUMERS:-}" ]]; then
+  IFS=',' read -r -a CONSUMERS <<<"$MENDER_MCU_CONSUMERS"
+else
+  CONSUMERS=("${DEFAULT_CONSUMERS[@]}")
+fi
+
 OLD=$(tr -d '[:space:]' < "$ROOT/DD_PIN" || true)
 echo "mender-mcu pin: ${OLD:-"(none)"} → $NEW"
 echo "tag suggestion: dd-pin-$SHORT  (annotate at $NEW)"
+echo "DD_ROOT=$DD_ROOT"
 echo
 
 replace_revision() {

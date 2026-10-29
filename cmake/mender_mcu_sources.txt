@@ -182,6 +182,7 @@ file(GLOB MENDER_MCU_SOURCES
     "${MENDER_MCU_ROOT}/src/core/client.c"
     "${MENDER_MCU_ROOT}/src/core/deployment-data.c"
     "${MENDER_MCU_ROOT}/src/core/error-counters.c"
+    "${MENDER_MCU_ROOT}/src/core/image-ram-stage.c"
     "${MENDER_MCU_ROOT}/src/core/update-module.c"
     "${MENDER_MCU_ROOT}/src/core/utils.c"
     "${MENDER_MCU_ROOT}/src/platform/log/${CONFIG_MENDER_PLATFORM_LOG_TYPE}/log.c"

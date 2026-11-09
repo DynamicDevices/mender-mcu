@@ -107,16 +107,16 @@ int main(void) {
     assert(mender_storage_f1_init()==-ENOSPC);
     mender_storage_nvs_handle.sector_size=4096;
     assert(mender_storage_f1_init()==0); assert(mender_storage_init()==0);
-    for(unsigned slot=0; slot<6; slot++) {
+    for(unsigned slot=0; slot<8; slot++) {
         io_result=16; assert(mender_storage_f1_read(slot,record,16)==16); assert(last_id==0xf100+slot);
         assert(mender_storage_f1_write(slot,record,16)==0); assert(last_id==0xf100+slot);
     }
     int before=calls;
-    assert(mender_storage_f1_read(6,record,16)==-EINVAL);
+    assert(mender_storage_f1_read(8,record,16)==-EINVAL);
     assert(mender_storage_f1_read(0,NULL,16)==-EINVAL);
     assert(mender_storage_f1_read(0,record,0)==-EINVAL);
     assert(mender_storage_f1_read(0,record,2449)==-EINVAL);
-    assert(mender_storage_f1_write(6,record,16)==-EINVAL);
+    assert(mender_storage_f1_write(8,record,16)==-EINVAL);
     assert(mender_storage_f1_write(0,NULL,16)==-EINVAL);
     assert(mender_storage_f1_write(0,record,15)==-EINVAL);
     assert(mender_storage_f1_write(0,record,2449)==-EINVAL); assert(calls==before);

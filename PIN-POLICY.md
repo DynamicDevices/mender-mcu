@@ -13,10 +13,10 @@ divergent local copies of the client.
 |-------|--------|
 | Remote | `https://github.com/DynamicDevices/mender-mcu` |
 | Branch (development) | `feature/zephyr-ram-stage-on-main` |
-| **West `revision`** | **`c121219d704fc159f37c9da1fc946aba0379454a`** (full 40-char SHA) |
-| Short | `c121219` — *do not* use abbreviated SHAs in west manifests (CI `west update -o=--depth=1` cannot resolve them) |
+| **West `revision`** | **`a0c6e2d456c7c5b8aeed17245a024a2dc302788d`** (full 40-char SHA) |
+| Short | `a0c6e2d` — *do not* use abbreviated SHAs in west manifests (CI `west update -o=--depth=1` cannot resolve them) |
 | **Machine pin** | [`DD_PIN`](./DD_PIN) (one SHA, one line) — CI SoT |
-| **Immutable tag** | `dd-pin-c121219` planned; not created or activated by this draft |
+| **Immutable tag** | `dd-pin-a0c6e2d` planned; not created or activated by this draft |
 
 What this pin includes:
 
@@ -24,15 +24,6 @@ What this pin includes:
 - `zephyr-image` **RAM staging** before secondary-slot write (FlexSPI XIP-safe on i.MX RT) — DD delta on this branch  
 - F1 application NVS and validated persisted update-state hooks, added on top of
   the existing shared-client history; RAM-staging update-module source unchanged.
-- F1 LED settings use application NVS slots6/7, disjoint from installation,
-  identities and rate configuration. The shared NVS owner and all length checks
-  are unchanged; slot8 remains rejected. Non-F1 consumers do not use these slots.
-
-The coordinated LED pin set is Mender PR6, F1 Flexi PR243 and the three matching
-consumer manifest PRs. Merge this shared pin only after its required review/CI;
-then merge the consumers after their unchanged live pin gates pass. Canonical
-CI must not accept a development override in place of the live DD_PIN.
-
 This proposed bump is not activated while its coordinated PRs remain drafts.
 The canonical branch still names the previous pin until an independently
 approved integration. Consumer CI must continue to reject canonical pin drift.

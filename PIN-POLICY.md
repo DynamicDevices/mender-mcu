@@ -24,6 +24,7 @@ What this pin includes:
 - `zephyr-image` **RAM staging** before secondary-slot write (FlexSPI XIP-safe on i.MX RT) — DD delta on this branch  
 - F1 application NVS and validated persisted update-state hooks, added on top of
   the existing shared-client history; RAM-staging update-module source unchanged.
+
 This proposed bump is not activated while its coordinated PRs remain drafts.
 The canonical branch still names the previous pin until an independently
 approved integration. Consumer CI must continue to reject canonical pin drift.

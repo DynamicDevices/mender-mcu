@@ -13,10 +13,10 @@ divergent local copies of the client.
 |-------|--------|
 | Remote | `https://github.com/DynamicDevices/mender-mcu` |
 | Branch (development) | `feature/zephyr-ram-stage-on-main` |
-| **West `revision`** | **`a0c6e2d456c7c5b8aeed17245a024a2dc302788d`** (full 40-char SHA) |
-| Short | `a0c6e2d` — *do not* use abbreviated SHAs in west manifests (CI `west update -o=--depth=1` cannot resolve them) |
+| **West `revision`** | **`c121219d704fc159f37c9da1fc946aba0379454a`** (full 40-char SHA) |
+| Short | `c121219` — *do not* use abbreviated SHAs in west manifests (CI `west update -o=--depth=1` cannot resolve them) |
 | **Machine pin** | [`DD_PIN`](./DD_PIN) (one SHA, one line) — CI SoT |
-| **Immutable tag** | `dd-pin-a0c6e2d` planned; not created or activated by this draft |
+| **Immutable tag** | `dd-pin-c121219` planned; not created or activated by this draft |
 
 What this pin includes:
 
@@ -24,12 +24,18 @@ What this pin includes:
 - `zephyr-image` **RAM staging** before secondary-slot write (FlexSPI XIP-safe on i.MX RT) — DD delta on this branch  
 - F1 application NVS and validated persisted update-state hooks, added on top of
   the existing shared-client history; RAM-staging update-module source unchanged.
+- Alternating F1 controller LED settings use application slots 6/7. Existing
+  single-owner locking and record-length checks are unchanged. The only client
+  source delta from `a0c6e2d` is admitting these two additional slots.
 
-This proposed bump is not activated while its coordinated PRs remain drafts.
-The canonical branch still names the previous pin until an independently
-approved integration. Consumer CI must continue to reject canonical pin drift.
+This coordinated proposal does not activate the live canonical pin merely by
+passing local candidate checks. Alex must review the shared-client and all four
+consumer candidates, satisfy applicable review/smoke gates, then merge the shared
+promotion before consumer canonical CI can pass. Consumer CI must continue to
+reject live canonical pin drift; do not substitute a PR-local pin in that gate.
 Five focused synthetic F1 sanitizer fixture groups pass; shared native_sim
-smokes and the applicable hardware matrix remain separate pending evidence.
+smokes and the applicable hardware matrix remain separate proof classes. See
+`docs/F1-LED-PIN-REPAIR-20261109.md` for this proposal's coordination and evidence.
 
 Predecessor pin `1dbc35b` on `feature/zephyr-4.4-mbedtls4` is **superseded** (local TLS/4.4 port replaced by upstream #247).
 

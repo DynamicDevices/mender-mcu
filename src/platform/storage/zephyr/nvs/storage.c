@@ -614,7 +614,8 @@ int mender_storage_f1_init(void)
 }
 int mender_storage_f1_read(unsigned slot, void *data, size_t capacity)
 {
-    if (slot > 5 || !data || !capacity || capacity > 2448) return -EINVAL;
+    /* Slots6/7 (NVS0xf106/0xf107): controller LED settings generations. */
+    if (slot > 7 || !data || !capacity || capacity > 2448) return -EINVAL;
     k_mutex_lock(&f1_nvs_owner_lock, K_FOREVER);
     int rc = f1_nvs_mounted ? (int)nvs_read(&mender_storage_nvs_handle, 0xf100 + slot, data, capacity) : -ENODEV;
     k_mutex_unlock(&f1_nvs_owner_lock);
@@ -622,7 +623,7 @@ int mender_storage_f1_read(unsigned slot, void *data, size_t capacity)
 }
 int mender_storage_f1_write(unsigned slot, const void *data, size_t length)
 {
-    if (slot > 5 || !data || length < 16 || length > 2448) return -EINVAL;
+    if (slot > 7 || !data || length < 16 || length > 2448) return -EINVAL;
     k_mutex_lock(&f1_nvs_owner_lock, K_FOREVER);
     int rc = f1_nvs_mounted ? (int)nvs_write(&mender_storage_nvs_handle, 0xf100 + slot, data, length) : -ENODEV;
     k_mutex_unlock(&f1_nvs_owner_lock);
